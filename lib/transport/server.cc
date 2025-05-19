@@ -1,11 +1,11 @@
-#include<stdint.h>
-#include<stdlib.h>
-#include<string.h>
-#include<errno.h>
-#include<unistd.h>
-#include<arpa/inet.h>
-#include<sys/socket.h>
-#include<netinet/ip.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <netinet/ip.h>
 #include "server.hpp"
 #include <iostream>
 #include <sstream>
@@ -22,7 +22,7 @@ namespace Transport
         /**
          * Create a socket -> socket takes 3 arguments: type of socket, type of protocol, and type of communication
          * AF_INET for IPv4, SOCK_STREAM for TCP, and 0 for default protocol (0 for TCP when Stream socket)
-         * 
+         *
          * Protocol	Arguments
             IPv4+TCP	socket(AF_INET, SOCK_STREAM, 0)
             IPv6+TCP	socket(AF_INET6, SOCK_STREAM, 0)
@@ -36,7 +36,6 @@ namespace Transport
             std::perror("socket");
             exit(EXIT_FAILURE);
         }
-
 
         // Set the socket options to allow reuse of the address
         /**
@@ -56,9 +55,9 @@ namespace Transport
         }
         sockaddr_in serverAddr;
         serverAddr.sin_family = AF_INET;
-        /** 
+        /**
          * htonl(0) is used to convert the address from host byte order to network byte order.
-         * host is LE (little-endian) and network is BE (big-endian).  
+         * host is LE (little-endian) and network is BE (big-endian).
          * for 32-bit numbers (IP addresses).
          */
         serverAddr.sin_addr.s_addr = htonl(0);
@@ -120,47 +119,99 @@ namespace Transport
     }
     void Server::handleClient(int clientSocket)
     {
-        char buffer[1024];
-        ssize_t bytesRead;
-        std::ostringstream oss;
-        /**
-         * recv() is used to receive data from the client.
-         * - clientSocket: The socket file descriptor for the client connection.
-         * - buffer: A pointer to the buffer where the received data will be stored.
-         * - sizeof(buffer) - 1: The maximum number of bytes to read (leaving space for null-terminator).
-         * - 0: Flags (0 means no special flags).
-         */
-        while((bytesRead= recv(clientSocket, buffer, sizeof(buffer) - 1, 0)) > 0) {
-            oss.write(buffer, bytesRead);
-        }
-
-        
-        if (bytesRead < 0)
+        char buffer[4 + MAX_BUFFER_SIZE] = {};
+        errno = 0;
+        // Read the length of the message
+        auto err = readMessage(clientSocket, &buffer[0], 4);
+        if (err)
         {
-            std::perror("recv");
+            std::perror(errno == 0? "EOF": "readMessage");
             return;
         }
-        // buffer[bytesRead] = '\0'; // Null-terminate the received data
-        std::cout << "Received: " << oss.str() << std::endl;
+        errno = 0;
+        uint32_t len = 0;
+        memcpy(&len, buffer, 4);  // assume little endian
+        if (len > MAX_BUFFER_SIZE) {
+            std::perror("Message too long");
+            close(clientSocket);
+            return;         
+        }
+        err = readMessage(clientSocket, &buffer[4], len);
+        if(err)
+        {
+            std::perror("Read error");
+        }
+        buffer[4+len] = '\0'; // Null-terminate the string
+        std::cout << "Received: " << &buffer[4] << std::endl;
 
         // Process the request and send a response
         std::string response = "Hello from server!";
         sendResponse(clientSocket, response);
-    } 
+    }
     void Server::sendResponse(int clientSocket, const std::string &response)
     {
-        /**
-         * send() is used to send data to the client.
-         * - clientSocket: The socket file descriptor for the client connection.
-         * - response.c_str(): A pointer to the data to be sent (converted to C-style string).
-         * - response.size(): The size of the data to be sent.
-         * - 0: Flags (0 means no special flags).
-         */
-        ssize_t bytesSent = send(clientSocket, response.c_str(), response.size(), 0);
-        if (bytesSent < 0)
+        // Send the length of the response
+        uint32_t len = response.size();
+        std::cout << "Sending: " << response << std::endl;
+        writeMessage(clientSocket, (const char *)&len, 4);
+        // Send the response
+        writeMessage(clientSocket, response.c_str(), len);  
+    }
+
+    int32_t Server::readMessage(int clientSocket, char *buffer, size_t size)
+    {
+        while (size > 0)
         {
-            std::perror("send");
+
+            /**
+             * recv() is used to receive data from the client.
+             * - clientSocket: The socket file descriptor for the client connection.
+             * - buffer: A pointer to the buffer where the received data will be stored.
+             * - sizeof(buffer) - 1: The maximum number of bytes to read (leaving space for null-terminator).
+             * - 0: Flags (0 means no special flags).
+             */
+            auto rv = recv(clientSocket, buffer, size, 0);
+            if (rv <= 0)
+            {
+                /**
+                 * If the read call is interrupted by a signal, errno will be set to EINTR and the read will return -1.
+                 * In this case, we should check errno and if it is EINTR, reset it to 0, we should continue reading.
+                 */
+                if(errno == EINTR) {
+                    errno = 0; // Reset errno to 0
+                    continue; // Interrupted by a signal, try again
+                }
+                return -1;
+            }
+            assert((size_t)rv <= size);
+
+            size -= (size_t)rv;
+            buffer += rv;    
         }
+        return 0;
+    }
+
+    int32_t Server::writeMessage(int clientSocket, const char *buffer, size_t size)
+    {
+        while (size > 0)
+        {
+            /**
+             * send() is used to send data to the client.
+             * - clientSocket: The socket file descriptor for the client connection.
+             * - response.c_str(): A pointer to the data to be sent (converted to C-style string).
+             * - response.size(): The size of the data to be sent.
+             * - 0: Flags (0 means no special flags).
+             */
+            auto rv = send(clientSocket, buffer, size, 0);
+            if (rv <= 0)
+            {
+                return -1;
+            }
+            assert((size_t)rv <= size);
+            size -= rv;
+            buffer += rv;
+        }
+        return 0;
     }
 
 }
