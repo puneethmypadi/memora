@@ -126,7 +126,9 @@ namespace Transport
         if (err)
         {
             std::perror(errno == 0? "EOF": "readMessage");
+            return;
         }
+        errno = 0;
         uint32_t len = 0;
         memcpy(&len, buffer, 4);  // assume little endian
         if (len > MAX_BUFFER_SIZE) {
@@ -171,6 +173,14 @@ namespace Transport
             auto rv = recv(clientSocket, buffer, size, 0);
             if (rv <= 0)
             {
+                /**
+                 * If the read call is interrupted by a signal, errno will be set to EINTR and the read will return -1.
+                 * In this case, we should check errno and if it is EINTR, reset it to 0, we should continue reading.
+                 */
+                if(errno == EINTR) {
+                    errno = 0; // Reset errno to 0
+                    continue; // Interrupted by a signal, try again
+                }
                 return -1;
             }
             assert((size_t)rv <= size);
