@@ -1,0 +1,11 @@
+cc_library(
+    name = "transport",
+    srcs = [
+        "server.cc",
+        "client.cc",
+    ], 
+    hdrs = [
+        "server.hpp",
+    ],
+    visibility = ["//visibility:public"],
+)

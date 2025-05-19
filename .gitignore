@@ -1,0 +1,4 @@
+/bazel-*
+settings.json
+/.vscode
+/MODULE.bazel.lock
