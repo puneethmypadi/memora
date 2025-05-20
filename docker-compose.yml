@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  builder:
+    build:
+      context: .
+      dockerfile: Dockerfile.build
+    volumes:
+      - .:/app
+      - bazel-cache:/root/.cache/bazel  # Optional: cache for faster rebuilds
+    command: >
+      /bin/bash -c "bazel build //main:memora &&
+                   cp bazel-bin/main/memora memora_bin/memora"
+
+  memora:
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime
+    depends_on:
+      - builder
+    ports:
+      - "3030:3030"
+    command: ["memora"]
+
+volumes:
+  bazel-cache:

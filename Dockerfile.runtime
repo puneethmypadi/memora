@@ -1,0 +1,12 @@
+# Dockerfile.runtime
+FROM debian:bullseye
+
+RUN apt-get update && apt-get install -y \
+    libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY ./memora_bin/memora /usr/local/bin/memora
+
+EXPOSE 3030
+
+CMD ["memora"]
